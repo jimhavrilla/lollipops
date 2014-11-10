@@ -12,7 +12,7 @@ are provided, it will also annotate them to the diagram using the
 Example
 -------
 
-    ./lollipops -w=700 TP53 R248Q R273C R249S
+    ./lollipops TP53  E343Q R342Q F338 R335C R283H R283C R282W R248Q G245S C242 N235S P223H P222 P222L V216 R213 L206 L194 D186E S185 S185N R158 R156H Y107H
 
 Results in the following SVG image:
 
