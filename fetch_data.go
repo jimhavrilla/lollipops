@@ -14,8 +14,7 @@ const BiomartXML = `<!DOCTYPE Query><Query client="github.com/pbnjay/lollipops" 
 	<Dataset name="hsapiens_gene_ensembl" config="gene_ensembl_config">
 	<Filter name="with_uniprotswissprot" value="only" filter_list=""/>
 	<Filter name="hgnc_symbol" value="%s" filter_list=""/>
-	<Attribute name="uniprot_swissprot_accession"/>
-</Dataset></Query>`
+	<Attribute name="uniprot_swissprot"/></Dataset></Query>` // FIXED QUERY
 
 const BiomartResultURL = "http://central.biomart.org/martservice/results"
 const PfamGraphicURL = "http://pfam.xfam.org/protein/%s/graphic"

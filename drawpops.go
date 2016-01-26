@@ -4,8 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math" // to use logarithmic scale
 	"regexp"
 	"sort"
+	"strconv" // converts maf strings to floats
 	"strings"
 	"unicode"
 )
@@ -51,7 +53,8 @@ const svgFooter = `</svg>`
 type Tick struct {
 	Pos int
 	Pri int
-	Col string
+	Col string  //added new color field - Jim H.
+	Hgt float64 //added new maf height field - Jim H.
 }
 
 type TickSlice []Tick
@@ -79,8 +82,7 @@ func (t TickSlice) Less(i, j int) bool {
 	return t[i].Pos < t[j].Pos
 }
 
-var stripChangePos = regexp.MustCompile("(^|[A-Za-z]*)([0-9]+)([A-Za-z]*)")
-
+var stripChangePos = regexp.MustCompile(`(\*|[[:alpha:]]*|\.)(\d*-?\d*)(\*|\w*)`) //new regex accomodates multi-nucleotide substitutions and other corner cases
 // BlendColorStrings blends two CSS #RRGGBB colors together with a straight average.
 func BlendColorStrings(a, b string) string {
 	var r1, g1, b1, r2, g2, b2 int
@@ -113,7 +115,24 @@ func AutoWidth(g *PfamGraphicResponse) int {
 // DrawSVG writes the SVG XML document to w, with the provided changes in changelist
 // and Pfam domain/region information in g. If GraphicWidth=0, the AutoWidth is called
 // to determine the best diagram width to fit all labels.
-func DrawSVG(w io.Writer, GraphicWidth int, changelist []string, g *PfamGraphicResponse) {
+func DrawSVG(w io.Writer, GraphicWidth int, changelist []string, maf int, g *PfamGraphicResponse) {
+	var maflist = make([]float64, len(changelist)/2)
+	if maf != 0 {
+		var newlist = make([]string, len(changelist)/2)
+		for i, chg := range changelist {
+			if i%2 == 0 {
+				newlist[i/2] = chg
+			} else {
+				f, err := strconv.ParseFloat(chg, 64)
+				maflist[i/2] = f
+				if err != nil {
+					//fmt.Println(err)
+				}
+			}
+		}
+		changelist = newlist
+	}
+
 	if GraphicWidth == 0 {
 		GraphicWidth = AutoWidth(g)
 	}
@@ -127,45 +146,77 @@ func DrawSVG(w io.Writer, GraphicWidth int, changelist []string, g *PfamGraphicR
 	}
 
 	pops := TickSlice{}
-	col := "#0000ff"
+	col := "blue"      //by default, synonymous
+	hgt := float64(10) // by default, log(10)=1
 	ht := GraphicHeight
+
+	var checkmulti = regexp.MustCompile(`(\d*)-(\d*)`)
+	var aachange = regexp.MustCompile(`\w+`)
+	max := float64(0)
+	stackedmax := float64(0)
+
 	if len(changelist) > 0 {
 		// parse changelist and check if lollipops need staggered
 		for i, chg := range changelist {
 			cpos := stripChangePos.FindStringSubmatch(chg)
 			spos := 0
-			if cpos[3] != "" {
-				col = "FF5555"
-			} else if cpos[3] == "" {
-				col = "#0000ff"
+			//fmt.Printf("%[1]s\n",chg)
+			//fmt.Printf("%[1]s\t%[2]s\t%[3]s\n",cpos[1],cpos[2],cpos[3])
+			//fmt.Printf("%[1]d\n",len(cpos[1]))
+			if checkmulti.MatchString(cpos[2]) {
+				blah := checkmulti.FindStringSubmatch(cpos[2])
+				cpos[2] = blah[2]
+				col = "green" // multi-nucleotide substitution
+			} else if aachange.MatchString(cpos[3]) { // non-synonymous polymorphism
+				col = "red"
+			} else if !aachange.MatchString(cpos[3]) { // synonymous polymorphism
+				col = "blue"
+			}
+			if cpos[1] == "*" {
+				col = "purple" // stop_lost
+			} else if cpos[3] == "*" {
+				col = "orange" //stop_gained
 			}
 			fmt.Sscanf(cpos[2], "%d", &spos)
-			pops = append(pops, Tick{spos, -i, col})
+			if maf != 0 {
+				hgt = maflist[i]
+			}
+			pops = append(pops, Tick{spos, -i, col, hgt}) //added new field
 		}
 		sort.Sort(pops)
 		maxStaggered := LollipopRadius + LollipopHeight
+		stackedmax = float64(0)
+		max = float64(0)
+		foo := float64(0)
 		for pi, pop := range pops {
 			h := LollipopRadius + LollipopHeight
+			if max < math.Abs(math.Log10(pop.Hgt)) { //max to create scale
+				max = math.Abs(math.Log10(pop.Hgt))
+			}
 			for pj := pi + 1; pj < len(pops); pj++ {
+				foo += math.Abs(math.Log10(pops[pj].Hgt))
+				if foo > stackedmax { // in case we do stacking later
+					stackedmax = foo
+				}
 				if pops[pj].Pos-pop.Pos > popSpace {
 					break
 				}
-				h += LollipopRadius * 3
+				//h += LollipopRadius * 3
 			}
 			if h > maxStaggered {
 				maxStaggered = h
 			}
 		}
-		ht += maxStaggered
-		startY += maxStaggered - (LollipopRadius + LollipopHeight)
+		ht += int((max+1)*10) + maxStaggered + LollipopHeight
+		startY += int((max+1)*10) + maxStaggered - (LollipopRadius + LollipopHeight)
 	}
 	if !*hideAxis {
 		ht += AxisPadding + AxisHeight
 	}
 
 	ticks := []Tick{
-		Tick{0, 0, col},           // start isn't very important (0 is implied) // wrote in new field - Jim H.
-		Tick{int(aaLen), 99, col}, // always draw the length in the axis // wrote in new field - Jim H.
+		Tick{0, 0, col, hgt},           // start isn't very important (0 is implied) // wrote in new field
+		Tick{int(aaLen), 99, col, hgt}, // always draw the length in the axis // wrote in new field
 	}
 
 	fmt.Fprintf(w, svgHeader, GraphicWidth, ht)
@@ -174,22 +225,39 @@ func DrawSVG(w io.Writer, GraphicWidth int, changelist []string, g *PfamGraphicR
 		poptop := startY + LollipopRadius
 		popbot := poptop + LollipopHeight
 		startY = popbot - (DomainHeight-BackboneHeight)/2
-
 		// draw lollipops
 		for pi, pop := range pops {
-			ticks = append(ticks, Tick{pop.Pos, 10, col})
+			ticks = append(ticks, Tick{pop.Pos, 10, col, hgt}) // wrote in new field
 			spos := Padding + (float64(pop.Pos) * scale)
-
-			mytop := poptop
+			//fmt.Println(int(math.Abs(math.Log10(pop.Hgt))))
+			mytop := poptop - int(math.Abs(math.Log10(pop.Hgt))*10)
 			for pj := pi + 1; pj < len(pops); pj++ {
 				if pops[pj].Pos-pop.Pos > popSpace {
 					break
 				}
-				mytop -= LollipopRadius * 3
+				//mytop -= LollipopRadius * 3
 			}
-			fmt.Fprintf(w, `<line x1="%f" x2="%f" y1="%d" y2="%d" stroke="#BABDB6" stroke-width="2"/>`, spos, spos, mytop, popbot)
-			fmt.Fprintf(w, `<a xlink:title="%s"><circle cx="%f" cy="%d" r="%d" fill="%s" /></a>`,
-				changelist[-pop.Pri], spos, mytop, LollipopRadius, pop.Col)
+			fmt.Fprintf(w, `<line x1="%f" x2="%f" y1="%d" y2="%d" stroke="#BABDB6" stroke-width="1" stroke-opacity="0.3"/>`, spos, spos, mytop, popbot) // changed stroke width and opacity
+			if pop.Col == "red" {                                                                                                                       // if non-synonymous - Jim H.
+				fmt.Fprintf(w, `<a xlink:title="%s"><circle cx="%f" cy="%d" r="%d" fill="#FF5555" fill-opacity="0.9" /></a>`, //color change
+					changelist[-pop.Pri], spos, mytop, LollipopRadius)
+			}
+			if pop.Col == "blue" { // if synonymous - Jim H.
+				fmt.Fprintf(w, `<a xlink:title="%s"><circle cx="%f" cy="%d" r="%d" fill="#0000ff" fill-opacity="0.9" /></a>`, //color change
+					changelist[-pop.Pri], spos, mytop, LollipopRadius)
+			}
+			if pop.Col == "purple" { // if stop-lost - Jim H.
+				fmt.Fprintf(w, `<a xlink:title="%s"><circle cx="%f" cy="%d" r="%d" fill="#CC00CC" fill-opacity="0.9" /></a>`, //color change
+					changelist[-pop.Pri], spos, mytop, LollipopRadius)
+			}
+			if pop.Col == "orange" { // if stop-gained - Jim H.
+				fmt.Fprintf(w, `<a xlink:title="%s"><circle cx="%f" cy="%d" r="%d" fill="#FFB733" fill-opacity="0.9" /></a>`, //color change
+					changelist[-pop.Pri], spos, mytop, LollipopRadius)
+			}
+			if pop.Col == "green" { // if multi-nucleotide - Jim H.
+				fmt.Fprintf(w, `<a xlink:title="%s"><circle cx="%f" cy="%d" r="%d" fill="#008000" fill-opacity="0.9" /></a>`, //color change
+					changelist[-pop.Pri], spos, mytop, LollipopRadius)
+			}
 
 			if *showLabels {
 				fmt.Fprintf(w, `<g transform="translate(%f,%d) rotate(-30)">`,
@@ -235,8 +303,8 @@ func DrawSVG(w io.Writer, GraphicWidth int, changelist []string, g *PfamGraphicR
 
 				tstart, _ := r.Start.Int64()
 				tend, _ := r.End.Int64()
-				ticks = append(ticks, Tick{int(tstart), 1, col})
-				ticks = append(ticks, Tick{int(tend), 1, col})
+				ticks = append(ticks, Tick{int(tstart), 1, col, hgt}) // new field
+				ticks = append(ticks, Tick{int(tend), 1, col, hgt})   // new field
 			}
 			fmt.Fprintln(w, `</a>`)
 		}
@@ -247,8 +315,8 @@ func DrawSVG(w io.Writer, GraphicWidth int, changelist []string, g *PfamGraphicR
 		sstart, _ := r.Start.Float64()
 		swidth, _ := r.End.Float64()
 
-		ticks = append(ticks, Tick{int(sstart), 5, col})
-		ticks = append(ticks, Tick{int(swidth), 5, col})
+		ticks = append(ticks, Tick{int(sstart), 5, col, hgt}) // new field
+		ticks = append(ticks, Tick{int(swidth), 5, col, hgt}) // new field
 
 		sstart *= scale
 		swidth = (swidth * scale) - sstart
@@ -310,7 +378,12 @@ func DrawSVG(w io.Writer, GraphicWidth int, changelist []string, g *PfamGraphicR
 		fmt.Fprintln(w, `<g class="axis">`)
 		fmt.Fprintf(w, `<line x1="%d" x2="%d" y1="%d" y2="%d" stroke="#AAAAAA" />`, Padding, GraphicWidth-Padding, startY, startY)
 		fmt.Fprintf(w, `<line x1="%d" x2="%d" y1="%d" y2="%d" stroke="#AAAAAA" />`, Padding, Padding, startY, startY+(AxisHeight/3))
-
+		fmt.Fprintf(w, `<line x1="%d" x2="%d" y1="%d" y2="%d" stroke="#AAAAAA" />`, Padding, Padding, startY, -1*int((max+1)*10)-LollipopHeight-LollipopRadius-AxisHeight-DomainHeight+startY) // maf axis
+		fmt.Fprintf(w, `<text style="font-size:10px;font-family:sans-serif;fill:#000000;" text-anchor="middle" x="%d" y="%d">%s</text>`, Padding+10, -1*int((max+2)*10)-LollipopRadius-LollipopHeight-DomainHeight+startY, "-log10(rarity)")
+		for j := -1; j <= int(max); j = j + 1 {
+			fmt.Fprintf(w, `<line x1="%d" x2="%d" y1="%d" y2="%d" stroke="#AAAAAA" />`, Padding-10, Padding, -10*(int(max)-j)-LollipopRadius-LollipopHeight-DomainHeight+startY, -10*(int(max)-j)-LollipopRadius-LollipopHeight-DomainHeight+startY)
+			fmt.Fprintf(w, `<text style="font-size:10px;font-family:sans-serif;fill:#000000;" text-anchor="middle" x="%d" y="%d">%d</text>`, Padding-5, -10*(int(max)-j)-LollipopRadius-LollipopHeight-DomainHeight+startY, int(max)-j)
+		}
 		ts := TickSlice(ticks)
 		sort.Sort(ts)
 		lastDrawn := 0

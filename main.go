@@ -4,12 +4,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 )
 
 var (
 	uniprot = flag.String("U", "", "Uniprot accession instead of GENE_SYMBOL")
 	output  = flag.String("o", "", "output SVG file (default GENE_SYMBOL.svg)")
 	width   = flag.Int("w", 0, "SVG output width (default automatic fit labels)")
+	maf     = flag.Int("m", 0, "adds maf frequencies to plot and varies height by rarity if you change it to 1") // new flag for maf
 )
 
 func main() {
@@ -24,17 +26,21 @@ func main() {
 	varStart := 0
 	acc := ""
 	geneSymbol := ""
+	out := []byte{0}
+	args := []string{flag.Arg(0)}
 	if *uniprot == "" && flag.NArg() > 0 {
-		geneSymbol = flag.Arg(0)
+		cmd := "idconv.py"
+		out, err = exec.Command(cmd, args...).Output()
+		acc = string(out)
 		varStart = 1
 
 		fmt.Fprintln(os.Stderr, "HGNC Symbol: ", flag.Arg(0))
 
-		acc, err = GetProtID(flag.Arg(0))
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
+		//acc, err = GetProtID(flag.Arg(0))
+		//if err != nil {
+		//	fmt.Fprintln(os.Stderr, err)
+		//	os.Exit(1)
+		//}
 
 		fmt.Fprintln(os.Stderr, "Uniprot/SwissProt Accession: ", acc)
 	}
@@ -70,5 +76,6 @@ func main() {
 	defer f.Close()
 
 	fmt.Fprintln(os.Stderr, "Drawing diagram to", *output)
-	DrawSVG(f, *width, flag.Args()[varStart:], data)
+	DrawSVG(f, *width, flag.Args()[varStart:], *maf, data) // added new field for maf
+
 }
