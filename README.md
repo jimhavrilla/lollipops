@@ -1,13 +1,14 @@
+This is a fork of the original lollipops diagram generator to be found at [Jeremy Jay's world of magic!](https://github.com/pbnjay/lollipops)  My version uses a Python executable to translate the HGNC Symbols into Uniprot numbers for Pfam domain accession instead of using the UniProt REST API (which works fine, and Jeremy uses) or the Biomart API (which had plenty of issues in the past).  Additionally, I allow for height modulation by rarity of a variant, and contributed the color changing of variants by nature of variant (stop lost, stop gained, missense, silent, etc.) to his original repo.  I plan on updating the program with further insertions to possibly allow for CATH domains to be transcribed, and to add more examples of how my version is used, and how it differs.  If you would rather use the original, simply check out the link above!
+
 lollipops
 ---------
 
-A simple 'lollipop' mutation diagram generator that tries to make things
-simple and easy by automating as much as possible. It uses the
-[Pfam API](http://pfam.xfam.org/help#tabview=tab9) to retrieve domains and
-colors, and the [BioMart API](http://www.biomart.org/) to translate HGNC
-Gene Symbols into Uniprot/SwissProt Accession number. If variant changes
-are provided, it will also annotate them to the diagram using the
-"lollipops" markers that give the tool its name.
+This is a simple 'lollipop' mutation diagram generator that tries to make things
+as automated as possible. It uses the [Pfam API](http://pfam.xfam.org/help#tabview=tab9)
+to retrieve domains and colors, and mygene (https://pypi.python.org/pypi/mygene)
+to translate HGNC Gene Symbols into Uniprot/SwissProt Accession numbers. If variant changes
+are provided, it will also annotate them to the diagram using the "lollipops" markers that
+give the tool its name.
 
 Example
 -------
